@@ -1,62 +1,99 @@
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/apiError.js';
 import { ApiResponse } from '../utils/apiResponse.js';
-import { Order } from '../models/order.model.js';
+import { User } from '../models/user.model.js';
+import { generateToken } from '../utils/generateToken.js';
+import bcrypt from 'bcryptjs';
 
 /**
- * @desc    Get all orders that need verification (Status: 'Paid')
- * @route   GET /api/admin/orders
- * @access  Admin
+ * @desc    Register a new user
+ * @route   POST /api/auth/register
+ * @access  Public
  */
-const getOrdersForVerification = asyncHandler(async (req, res) => {
-  // Find all orders that are 'Paid' but not yet 'Verified'
-  const orders = await Order.find({ status: 'Paid' })
-    .sort({ submittedAt: 1 }); // Show oldest paid orders first
+const registerUser = asyncHandler(async (req, res) => {
+  const { name, email, password, phone, address } = req.body;
 
-  if (!orders || orders.length === 0) {
-    return res
-      .status(200)
-      .json(new ApiResponse(200, [], 'No orders are currently awaiting verification'));
+  if (!name || !email || !password) {
+    throw new ApiError(400, 'Name, Email, and Password are required');
   }
 
+  // 1. Check if user already exists
+  const userExists = await User.findOne({ email });
+  if (userExists) {
+    throw new ApiError(409, 'User with this email already exists'); // 409 Conflict
+  }
+
+  // 2. Create new user
+  // The 'pre' hook in user.model.js will automatically hash the password
+  const user = await User.create({
+    name,
+    email,
+    password,
+    phone,
+    address,
+  });
+
+  // 3. Generate token
+  const token = generateToken(user._id, user.role);
+
+  // 4. Send response (don't send back the password)
+  const userResponse = {
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    token: token,
+  };
+
   return res
-    .status(200)
-    .json(new ApiResponse(200, orders, 'Orders awaiting verification retrieved successfully'));
+    .status(201)
+    .json(new ApiResponse(201, userResponse, 'User registered successfully'));
 });
 
 /**
- * @desc    Manually verify a payment
- * @route   PATCH /api/admin/orders/:id/verify
- * @access  Admin
+ * @desc    Authenticate (login) a user
+ * @route   POST /api/auth/login
+ * @access  Public
  */
-const verifyOrderPayment = asyncHandler(async (req, res) => {
-  const orderId = req.params.id;
-  const { adminNotes } = req.body; // Optional notes from admin
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-  // Find by our custom 'orderId'
-  const order = await Order.findOne({ orderId: orderId });
-
-  if (!order) {
-    throw new ApiError(404, 'Order not found');
+  if (!email || !password) {
+    throw new ApiError(400, 'Email and Password are required');
   }
 
-  // Check if the order is in the correct state to be verified
-  if (order.status !== 'Paid') {
-    throw new ApiError(400, `This order cannot be verified. Current status: ${order.status}`);
+  // 1. Find user by email
+  // We must .select('+password') because it's hidden by default in the model
+  const user = await User.findOne({ email }).select('+password');
+
+  if (!user) {
+    throw new ApiError(401, 'Invalid email or password'); // 401 Unauthorized
   }
 
-  // Update the order status
-  order.status = 'Verified'; // This is the verification step
-  order.verifiedAt = new Date();
-  if (adminNotes) {
-    order.adminNotes = adminNotes;
+  // 2. Compare password
+  // We need to use bcrypt.compare, not the model method, 
+  // because we selected the password manually.
+  const isPasswordCorrect = await bcrypt.compare(password, user.password);
+
+  if (!isPasswordCorrect) {
+    throw new ApiError(401, 'Invalid email or password');
   }
 
-  await order.save({ validateBeforeSave: true });
+  // 3. Generate token
+  const token = generateToken(user._id, user.role);
+
+  // 4. Send response
+  const userResponse = {
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    token: token,
+  };
 
   return res
     .status(200)
-    .json(new ApiResponse(200, order, 'Payment successfully verified. Order moved to processing.'));
+    .json(new ApiResponse(200, userResponse, 'User logged in successfully'));
 });
 
-export { getOrdersForVerification, verifyOrderPayment };
+export { registerUser, loginUser };
