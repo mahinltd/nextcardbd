@@ -28,11 +28,16 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-    customerDetails: {
-      name: { type: String, required: true },
-      phone: { type: String, required: true }, // We might need to validate this
-      address: { type: String, required: true },
+    // --- THIS IS THE MAJOR CHANGE ---
+    // We now link the order to a specific user
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
     },
+    // We removed the old 'customerDetails' object
+    // ---
+    
     items: [orderItemSchema],
     totalAmount: {
       type: Number,
@@ -57,17 +62,16 @@ const orderSchema = new mongoose.Schema(
     paymentDetails: {
       method: {
         type: String,
-        required: false, // Will be set on payment submission
+        required: false,
         enum: ['bKash', 'Nagad', 'Rocket', 'Unknown'],
       },
       receiverNumber: {
         type: String,
         required: false,
       },
-      // The TxID submitted by the user
       transactionId: {
         type: String,
-        sparse: true, // Allows multiple nulls, but unique if it exists
+        sparse: true,
         index: true,
       },
       submittedAt: {

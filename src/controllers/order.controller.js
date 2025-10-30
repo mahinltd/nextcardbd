@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/apiError.js';
 import { ApiResponse } from '../utils/apiResponse.js';
@@ -9,15 +8,16 @@ import { generateOrderId } from '../utils/generateOrderId.js';
 /**
  * @desc    Create a new order
  * @route   POST /api/orders
- * @access  Public
+ * @access  Private (User must be logged in)
  */
 const createOrder = asyncHandler(async (req, res) => {
-  const { customerDetails, items } = req.body;
+  // We get 'items' from the body
+  const { items } = req.body;
+  
+  // We get 'userId' from the 'protect' middleware (req.user)
+  const userId = req.user._id;
 
   // 1. Validation
-  if (!customerDetails || !customerDetails.name || !customerDetails.phone || !customerDetails.address) {
-    throw new ApiError(400, 'Customer details (name, phone, address) are required');
-  }
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, 'Order items (cart) cannot be empty');
   }
@@ -32,27 +32,22 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     const product = await Product.findById(item.productId);
-
     if (!product) {
       throw new ApiError(404, `Product not found: ${item.productId}`);
     }
-
     if (product.stock < item.quantity) {
       throw new ApiError(400, `Not enough stock for ${product.name}. Available: ${product.stock}`);
     }
 
-    // Add to total amount using the secure sellPrice from the DB
     totalAmount += product.sellPrice * item.quantity;
-
     processedItems.push({
       productId: product._id,
       quantity: item.quantity,
-      price: product.sellPrice, // Store the price at the time of order
+      price: product.sellPrice,
     });
   }
   
   // 3. Generate a unique Order ID
-  // We'll try a few times in case of a rare collision
   let orderId = '';
   let isOrderIdUnique = false;
   for (let i = 0; i < 5; i++) {
@@ -63,15 +58,14 @@ const createOrder = asyncHandler(async (req, res) => {
       break;
     }
   }
-
   if (!isOrderIdUnique) {
     throw new ApiError(500, 'Failed to generate a unique order ID. Please try again.');
   }
 
-  // 4. Create and save the new order
+  // 4. Create and save the new order (now linked to userId)
   const newOrder = await Order.create({
     orderId,
-    customerDetails,
+    userId: userId, // <-- This is the new change
     items: processedItems,
     totalAmount,
     status: 'Pending',
@@ -81,7 +75,6 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(500, 'Failed to create the order');
   }
 
-  // 5. Respond with the created order (frontend needs this)
   return res
     .status(201)
     .json(new ApiResponse(201, newOrder, 'Order created successfully. Awaiting payment.'));
@@ -90,13 +83,13 @@ const createOrder = asyncHandler(async (req, res) => {
 /**
  * @desc    Get order details by ID
  * @route   GET /api/orders/:id
- * @access  Public (or secured)
+ * @access  Private
  */
 const getOrderById = asyncHandler(async (req, res) => {
   const order = await Order.findOne({
-    // Find by our custom 'orderId' (e.g., ORD-12345), NOT the database '_id'
-    orderId: req.params.id, 
-  }).populate('items.productId', 'name images'); // Show product name/image
+    orderId: req.params.id,
+    userId: req.user._id // <-- User can only get their OWN order
+  }).populate('items.productId', 'name images'); 
 
   if (!order) {
     throw new ApiError(404, 'Order not found');
@@ -107,4 +100,17 @@ const getOrderById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, order, 'Order retrieved successfully'));
 });
 
-export { createOrder, getOrderById };
+/**
+ * @desc    Get all orders for the logged-in user
+ * @route   GET /api/orders/myorders
+ * @access  Private
+ */
+const getMyOrders = asyncHandler(async (req, res) => {
+  const orders = await Order.find({ userId: req.user._id }).sort({ createdAt: -1 });
+  
+  return res
+    .status(200)
+    .json(new ApiResponse(200, orders, 'My orders retrieved successfully'));
+});
+
+export { createOrder, getOrderById, getMyOrders };
