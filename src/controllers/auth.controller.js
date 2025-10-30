@@ -71,8 +71,6 @@ const loginUser = asyncHandler(async (req, res) => {
   }
 
   // 2. Compare password
-  // We need to use bcrypt.compare, not the model method, 
-  // because we selected the password manually.
   const isPasswordCorrect = await bcrypt.compare(password, user.password);
 
   if (!isPasswordCorrect) {

@@ -65,13 +65,7 @@ userSchema.pre('save', async function (next) {
 // --- Mongoose Instance Method ---
 // Method to compare candidate password with the stored hash
 userSchema.methods.isPasswordCorrect = async function (candidatePassword) {
-  // 'select: false' on password means 'this.password' is not available here.
-  // We must re-query the user with the password field selected.
-  // A simple way is to re-fetch, but a more common way is:
-  // Note: This requires a slight change in how we query during login.
-  // For simplicity here, let's assume the password was selected during the query.
-  
-  // A better approach is to compare directly
+  // We can compare directly
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

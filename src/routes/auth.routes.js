@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { registerUser, loginUser } from '../controllers/auth.controller.js';
-// We will add validation middleware here later (optional)
 
 const router = Router();
 
