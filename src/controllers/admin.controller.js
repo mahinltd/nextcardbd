@@ -2,7 +2,10 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/apiError.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { Order } from '../models/order.model.js';
-import { syncProductsFromSupplier } from '../services/supplier.service.js'; // <-- 1. Import new service
+import { User } from '../models/user.model.js'; // <-- 1. Import User model
+import { syncProductsFromSupplier } from '../services/supplier.service.js';
+// --- 2. Import new email service ---
+import { sendPaymentVerifiedToCustomer } from '../services/email.service.js';
 
 /**
  * @desc    Trigger a manual product sync from the supplier
@@ -11,13 +14,10 @@ import { syncProductsFromSupplier } from '../services/supplier.service.js'; // <
  */
 const syncProducts = asyncHandler(async (req, res) => {
   try {
-    // Run the sync service
     const syncResult = await syncProductsFromSupplier();
-    
     return res
       .status(200)
       .json(new ApiResponse(200, syncResult, syncResult.summary || 'Product sync triggered successfully.'));
-
   } catch (error) {
     throw new ApiError(500, 'Product sync failed', error.message);
   }
@@ -60,12 +60,26 @@ const verifyOrderPayment = asyncHandler(async (req, res) => {
     throw new ApiError(400, `This order cannot be verified. Current status: ${order.status}`);
   }
 
+  // --- 3. Find the customer to send email ---
+  const customer = await User.findById(order.userId);
+  if (!customer) {
+    console.error(`Admin Verify: Customer not found for order ${order.orderId}. Cannot send email.`);
+    // We don't stop the process, just log the error
+  }
+
+  // 4. Update the order status
   order.status = 'Verified';
   order.verifiedAt = new Date();
   if (adminNotes) {
     order.adminNotes = adminNotes;
   }
   await order.save({ validateBeforeSave: true });
+
+  // --- 5. (NEW STEP) SEND EMAIL to Customer ---
+  if (customer) {
+    sendPaymentVerifiedToCustomer(order, customer).catch(err => console.error("Customer Verified Email Error:", err));
+  }
+  // -------------------------------------------
 
   return res
     .status(200)
@@ -74,7 +88,7 @@ const verifyOrderPayment = asyncHandler(async (req, res) => {
 
 // --- Make sure all 3 functions are exported ---
 export { 
-  syncProducts, // <-- 2. Export new function
+  syncProducts,
   getOrdersForVerification, 
   verifyOrderPayment 
 };
