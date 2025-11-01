@@ -6,31 +6,39 @@ import { Product } from '../models/product.model.js';
 import { generateOrderId } from '../utils/generateOrderId.js';
 
 /**
- * @desc    Create a new order
+ * @desc    Create a new order (with Shipping Address)
  * @route   POST /api/orders
  * @access  Private (User must be logged in)
  */
 const createOrder = asyncHandler(async (req, res) => {
-  // We get 'items' from the body
-  const { items } = req.body;
-  
-  // We get 'userId' from the 'protect' middleware (req.user)
+  // --- 1. Get all required data from body and user ---
+  const { items, paymentMethod, shippingAddress } = req.body;
   const userId = req.user._id;
 
-  // 1. Validation
+  // --- 2. Validation ---
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, 'Order items (cart) cannot be empty');
+  }
+  if (!paymentMethod) {
+    throw new ApiError(400, 'Payment method is required');
+  }
+  if (
+    !shippingAddress ||
+    !shippingAddress.name ||
+    !shippingAddress.phone ||
+    !shippingAddress.address
+  ) {
+    throw new ApiError(400, 'Shipping address (name, phone, address) is required');
   }
 
   let totalAmount = 0;
   const processedItems = [];
 
-  // 2. Process items: Check stock and calculate total amount from DB prices
+  // --- 3. Process items: Check stock and calculate total amount ---
   for (const item of items) {
     if (!item.productId || !item.quantity) {
       throw new ApiError(400, `Invalid item data: ${JSON.stringify(item)}`);
     }
-
     const product = await Product.findById(item.productId);
     if (!product) {
       throw new ApiError(404, `Product not found: ${item.productId}`);
@@ -39,15 +47,19 @@ const createOrder = asyncHandler(async (req, res) => {
       throw new ApiError(400, `Not enough stock for ${product.name}. Available: ${product.stock}`);
     }
 
-    totalAmount += product.sellPrice * item.quantity;
+    const itemPrice = product.sellPrice * item.quantity;
+    totalAmount += itemPrice;
+
     processedItems.push({
       productId: product._id,
+      name: item.name || product.name, // Use name from cart (e.g., with Size)
+      image: item.image || (product.images.length > 0 ? product.images[0] : ''),
       quantity: item.quantity,
-      price: product.sellPrice,
+      price: product.sellPrice, // Store the price per unit
     });
   }
   
-  // 3. Generate a unique Order ID
+  // --- 4. Generate a unique Order ID ---
   let orderId = '';
   let isOrderIdUnique = false;
   for (let i = 0; i < 5; i++) {
@@ -62,13 +74,20 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(500, 'Failed to generate a unique order ID. Please try again.');
   }
 
-  // 4. Create and save the new order (now linked to userId)
+  // --- 5. Set status based on paymentMethod ---
+  const orderStatus = (paymentMethod === 'COD') ? 'Processing' : 'Pending';
+  
+  // --- 6. Create and save the new order ---
   const newOrder = await Order.create({
     orderId,
-    userId: userId, // <-- This is the new change
+    userId: userId,
+    shippingAddress: shippingAddress, // <-- SAVE THE SHIPPING ADDRESS
     items: processedItems,
-    totalAmount,
-    status: 'Pending',
+    totalAmount: totalAmount,
+    status: orderStatus,
+    paymentDetails: { 
+      method: paymentMethod 
+    },
   });
 
   if (!newOrder) {
@@ -77,8 +96,11 @@ const createOrder = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(new ApiResponse(201, newOrder, 'Order created successfully. Awaiting payment.'));
+    .json(new ApiResponse(201, newOrder, 'Order created successfully.'));
 });
+
+
+// --- (The following functions remain unchanged) ---
 
 /**
  * @desc    Get order details by ID
@@ -88,13 +110,12 @@ const createOrder = asyncHandler(async (req, res) => {
 const getOrderById = asyncHandler(async (req, res) => {
   const order = await Order.findOne({
     orderId: req.params.id,
-    userId: req.user._id // <-- User can only get their OWN order
+    userId: req.user._id 
   }).populate('items.productId', 'name images'); 
 
   if (!order) {
     throw new ApiError(404, 'Order not found');
   }
-
   return res
     .status(200)
     .json(new ApiResponse(200, order, 'Order retrieved successfully'));
