@@ -6,13 +6,13 @@ import { Product } from '../models/product.model.js';
 import { generateOrderId } from '../utils/generateOrderId.js';
 
 /**
- * @desc    Create a new order (with Shipping Address)
+ * @desc    Create a new order (with Shipping Address + Delivery Charge)
  * @route   POST /api/orders
  * @access  Private (User must be logged in)
  */
 const createOrder = asyncHandler(async (req, res) => {
   // --- 1. Get all required data from body and user ---
-  const { items, paymentMethod, shippingAddress } = req.body;
+  const { items, paymentMethod, shippingAddress, deliveryCharge } = req.body;
   const userId = req.user._id;
 
   // --- 2. Validation ---
@@ -26,15 +26,19 @@ const createOrder = asyncHandler(async (req, res) => {
     !shippingAddress ||
     !shippingAddress.name ||
     !shippingAddress.phone ||
-    !shippingAddress.address
+    !shippingAddress.address ||
+    !shippingAddress.city // <-- Validate new city field
   ) {
-    throw new ApiError(400, 'Shipping address (name, phone, address) is required');
+    throw new ApiError(400, 'Shipping address (name, phone, address, city) is required');
+  }
+  if (deliveryCharge === undefined || deliveryCharge === null) {
+    throw new ApiError(400, 'Delivery charge is required');
   }
 
-  let totalAmount = 0;
+  let subTotalAmount = 0; // Price of items only
   const processedItems = [];
 
-  // --- 3. Process items: Check stock and calculate total amount ---
+  // --- 3. Process items: Check stock and calculate subTotal ---
   for (const item of items) {
     if (!item.productId || !item.quantity) {
       throw new ApiError(400, `Invalid item data: ${JSON.stringify(item)}`);
@@ -48,18 +52,21 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     const itemPrice = product.sellPrice * item.quantity;
-    totalAmount += itemPrice;
+    subTotalAmount += itemPrice;
 
     processedItems.push({
       productId: product._id,
-      name: item.name || product.name, // Use name from cart (e.g., with Size)
+      name: item.name || product.name,
       image: item.image || (product.images.length > 0 ? product.images[0] : ''),
       quantity: item.quantity,
-      price: product.sellPrice, // Store the price per unit
+      price: product.sellPrice,
     });
   }
   
-  // --- 4. Generate a unique Order ID ---
+  // --- 4. Calculate Final Total Amount ---
+  const finalTotalAmount = subTotalAmount + Number(deliveryCharge);
+
+  // --- 5. Generate a unique Order ID ---
   let orderId = '';
   let isOrderIdUnique = false;
   for (let i = 0; i < 5; i++) {
@@ -74,16 +81,17 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(500, 'Failed to generate a unique order ID. Please try again.');
   }
 
-  // --- 5. Set status based on paymentMethod ---
+  // --- 6. Set status based on paymentMethod ---
   const orderStatus = (paymentMethod === 'COD') ? 'Processing' : 'Pending';
   
-  // --- 6. Create and save the new order ---
+  // --- 7. Create and save the new order ---
   const newOrder = await Order.create({
     orderId,
     userId: userId,
-    shippingAddress: shippingAddress, // <-- SAVE THE SHIPPING ADDRESS
+    shippingAddress: shippingAddress, // Save the full shipping address (with city)
     items: processedItems,
-    totalAmount: totalAmount,
+    deliveryCharge: Number(deliveryCharge), // <-- SAVE THE DELIVERY CHARGE
+    totalAmount: finalTotalAmount, // Save the final total
     status: orderStatus,
     paymentDetails: { 
       method: paymentMethod 

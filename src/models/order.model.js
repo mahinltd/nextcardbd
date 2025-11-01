@@ -6,10 +6,8 @@ const orderItemSchema = new mongoose.Schema({
     ref: 'Product',
     required: true,
   },
-  // --- NEW: Add name and image to item schema ---
   name: { type: String, required: true },
   image: { type: String, required: true },
-  // ---
   quantity: {
     type: Number,
     required: true,
@@ -35,17 +33,24 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
     
-    // --- THIS IS THE NEW SHIPPING ADDRESS FIELD ---
+    // Shipping Address (UPDATED)
     shippingAddress: {
       name: { type: String, required: true },
       phone: { type: String, required: true },
       address: { type: String, required: true },
-      city: { type: String, required: false }, // Optional
+      city: { type: String, required: true }, // <-- ADDED AS REQUIRED
+    },
+    
+    items: [orderItemSchema], 
+    
+    // --- NEW FIELD ADDED ---
+    deliveryCharge: {
+      type: Number,
+      required: true,
+      default: 0,
     },
     // --- END OF NEW FIELD ---
-    
-    items: [orderItemSchema], // Using the schema defined above
-    
+
     totalAmount: {
       type: Number,
       required: true,
