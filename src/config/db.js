@@ -10,11 +10,8 @@ const connectDB = async () => {
       process.exit(1); // Exit process with failure
     }
 
-    const connectionInstance = await mongoose.connect(mongoUri, {
-      // Mongoose 6+ has these as default, but good to be aware
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    // Connect without the deprecated options
+    const connectionInstance = await mongoose.connect(mongoUri);
 
     console.log(`\nMongoDB Connected !! DB HOST: ${connectionInstance.connection.host}`);
   } catch (error) {
