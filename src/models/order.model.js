@@ -28,15 +28,12 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-    // --- THIS IS THE MAJOR CHANGE ---
-    // We now link the order to a specific user
+    // Link the order to a specific user
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
-    // We removed the old 'customerDetails' object
-    // ---
     
     items: [orderItemSchema],
     totalAmount: {
@@ -48,10 +45,10 @@ const orderSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        'Pending', // Order created, awaiting payment
+        'Pending', // Order created, awaiting payment (for Online/Bank)
         'Paid', // User submitted TxID
         'Verified', // Admin confirmed payment
-        'Processing', // Order sent to supplier
+        'Processing', // Order ready to be shipped (for COD or Verified)
         'Shipped', // Supplier shipped item
         'Completed', // Order finished
         'Cancelled', // Order cancelled
@@ -63,15 +60,24 @@ const orderSchema = new mongoose.Schema(
       method: {
         type: String,
         required: false,
-        enum: ['bKash', 'Nagad', 'Rocket', 'Unknown'],
+        enum: [
+          'bKash',
+          'Nagad',
+          'Rocket',
+          'COD',
+          'Bank', // <-- ADDED
+          'Card', // <-- ADDED
+          'Unknown',
+        ],
       },
       receiverNumber: {
         type: String,
-        required: false,
+        required: false, // For bKash/Nagad
       },
+      // The TxID or Bank Reference ID submitted by the user
       transactionId: {
         type: String,
-        sparse: true,
+        sparse: true, // Allows multiple nulls, but unique if it exists
         index: true,
       },
       submittedAt: {

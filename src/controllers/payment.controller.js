@@ -2,9 +2,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/apiError.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { Order } from '../models/order.model.js';
-import { User } from '../models/user.model.js'; // <-- 1. Import User model
+import { User } from '../models/user.model.js';
 import { generateQrCodeDataUri } from '../services/qr.service.js';
-// --- 2. Import new email services ---
 import { 
   sendNewOrderToAdmin, 
   sendOrderConfirmationToCustomer 
@@ -12,7 +11,7 @@ import {
 import 'dotenv/config';
 
 /**
- * @desc    Generate payment QR code for an order
+ * @desc    Get all payment details for an order (MFS, Bank, QR)
  * @route   GET /api/orders/:id/payment-qr
  * @access  Public
  */
@@ -28,6 +27,7 @@ const getPaymentQrCode = asyncHandler(async (req, res) => {
     throw new ApiError(400, `This order is already ${order.status.toLowerCase()}`);
   }
 
+  // --- 1. Get Mobile Banking (MFS) Details ---
   const receiverNumber = process.env.RECEIVER_NUMBER_BKASH || process.env.RECEIVER_NUMBER_NAGAD || 'N/A';
   
   const qrText = `
@@ -39,17 +39,29 @@ const getPaymentQrCode = asyncHandler(async (req, res) => {
   `.trim().replace(/\s+/g, '\n');
 
   const qrCodeDataUrl = await generateQrCodeDataUri(qrText);
+  
+  const mobileBankingDetails = {
+    bKash: process.env.RECEIVER_NUMBER_BKASH,
+    Nagad: process.env.RECEIVER_NUMBER_NAGAD,
+    Rocket: process.env.RECEIVER_NUMBER_ROCKET,
+  };
 
+  // --- 2. (NEW) Get Bank Transfer Details ---
+  const bankDetails = {
+    bankName: process.env.BANK_NAME,
+    branchName: process.env.BANK_BRANCH_NAME,
+    accountName: process.env.BANK_ACCOUNT_NAME,
+    accountNumber: process.env.BANK_ACCOUNT_NUMBER,
+  };
+  // --- END OF NEW ---
+
+  // 5. Send back all info needed for the payment page
   const paymentInfo = {
-    receiverNumber: receiverNumber,
     amount: order.totalAmount,
     reference: order.orderId,
     qrCodeDataUrl: qrCodeDataUrl,
-    allReceiverNumbers: {
-      bKash: process.env.RECEIVER_NUMBER_BKASH,
-      Nagad: process.env.RECEIVER_NUMBER_NAGAD,
-      Rocket: process.env.RECEIVER_NUMBER_ROCKET,
-    }
+    mobileBanking: mobileBankingDetails,
+    bankTransfer: bankDetails, // <-- ADDED BANK DETAILS TO RESPONSE
   };
 
   return res
@@ -61,11 +73,11 @@ const getPaymentQrCode = asyncHandler(async (req, res) => {
 /**
  * @desc    Submit Transaction ID (TxID) for manual verification
  * @route   POST /api/orders/:id/payment
- * @access  Public (but we find the user associated with the order)
+ * @access  Public
  */
 const submitPayment = asyncHandler(async (req, res) => {
   const orderId = req.params.id;
-  const { transactionId, method } = req.body;
+  const { transactionId, method } = req.body; // method can now be 'bKash', 'Bank', 'Card'
 
   if (!transactionId || !method) {
     throw new ApiError(400, 'Transaction ID (transactionId) and Method (method) are required');
@@ -90,34 +102,26 @@ const submitPayment = asyncHandler(async (req, res) => {
   // 3. Find the customer who placed this order
   const customer = await User.findById(order.userId);
   if (!customer) {
-    // This should not happen if our order system is working correctly
     throw new ApiError(404, 'Customer associated with this order not found.');
   }
 
-  // 4. Get the correct receiver number
-  let receiverNumber = '';
-  if (method === 'bKash') receiverNumber = process.env.RECEIVER_NUMBER_BKASH;
-  else if (method === 'Nagad') receiverNumber = process.env.RECEIVER_NUMBER_NAGAD;
-  else if (method === 'Rocket') receiverNumber = process.env.RECEIVER_NUMBER_ROCKET;
-  else throw new ApiError(400, 'Invalid payment method selected');
-
-  // 5. Update the order
+  // 4. Update the order
   order.status = 'Paid'; // Update status for admin verification
   order.paymentDetails = {
     method: method,
-    receiverNumber: receiverNumber,
+    // receiverNumber is optional now, only applies to MFS
+    receiverNumber: (method === 'bKash' || method === 'Nagad' || method === 'Rocket') 
+                      ? process.env[`RECEIVER_NUMBER_${method.toUpperCase()}`] 
+                      : null,
     transactionId: transactionId.trim(),
     submittedAt: new Date(),
   };
 
   await order.save({ validateBeforeSave: true });
 
-  // --- 6. (NEW STEP) SEND EMAILS ---
-  // We don't need to wait for emails to be sent to respond to the user
-  // This happens in the background
+  // 5. SEND EMAILS
   sendNewOrderToAdmin(order).catch(err => console.error("Admin Email Error:", err));
   sendOrderConfirmationToCustomer(order, customer).catch(err => console.error("Customer Email Error:", err));
-  // ---------------------------------
 
   return res
     .status(200)
