@@ -11,11 +11,12 @@ import {
 import 'dotenv/config';
 
 /**
- * @desc    Get all payment details for an order (MFS, Bank, QR)
- * @route   GET /api/orders/:id/payment-qr
+ * @desc    Get all payment details FOR THE SELECTED METHOD
+ * @route   GET /api/orders/:id/payment-details
  * @access  Public
  */
-const getPaymentQrCode = asyncHandler(async (req, res) => {
+// --- We rename the function route for clarity ---
+const getPaymentDetails = asyncHandler(async (req, res) => {
   const orderId = req.params.id;
   
   const order = await Order.findOne({ orderId: orderId });
@@ -27,42 +28,48 @@ const getPaymentQrCode = asyncHandler(async (req, res) => {
     throw new ApiError(400, `This order is already ${order.status.toLowerCase()}`);
   }
 
-  // --- 1. Get Mobile Banking (MFS) Details ---
-  const receiverNumber = process.env.RECEIVER_NUMBER_BKASH || process.env.RECEIVER_NUMBER_NAGAD || 'N/A';
-  
-  const qrText = `
-    NextCard BD Payment
-    To: ${receiverNumber}
-    Amount: ${order.totalAmount}
-    Ref: ${order.orderId}
-    Please send and submit TxID after payment.
-  `.trim().replace(/\s+/g, '\n');
-
-  const qrCodeDataUrl = await generateQrCodeDataUri(qrText);
-  
-  const mobileBankingDetails = {
-    bKash: process.env.RECEIVER_NUMBER_BKASH,
-    Nagad: process.env.RECEIVER_NUMBER_NAGAD,
-    Rocket: process.env.RECEIVER_NUMBER_ROCKET,
-  };
-
-  // --- 2. (NEW) Get Bank Transfer Details ---
-  const bankDetails = {
-    bankName: process.env.BANK_NAME,
-    branchName: process.env.BANK_BRANCH_NAME,
-    accountName: process.env.BANK_ACCOUNT_NAME,
-    accountNumber: process.env.BANK_ACCOUNT_NUMBER,
-  };
-  // --- END OF NEW ---
-
-  // 5. Send back all info needed for the payment page
-  const paymentInfo = {
+  // --- THIS IS THE NEW LOGIC ---
+  const selectedMethod = order.paymentDetails.method;
+  let paymentInfo = {
     amount: order.totalAmount,
     reference: order.orderId,
-    qrCodeDataUrl: qrCodeDataUrl,
-    mobileBanking: mobileBankingDetails,
-    bankTransfer: bankDetails, // <-- ADDED BANK DETAILS TO RESPONSE
+    method: selectedMethod, // e.g., "bKash" or "Bank"
+    details: {}, // This object will hold specific info
   };
+
+  if (selectedMethod === 'bKash' || selectedMethod === 'Nagad' || selectedMethod === 'Rocket') {
+    // --- 1. Customer selected MFS (bKash/Nagad) ---
+    const primaryNumber = process.env[`RECEIVER_NUMBER_${selectedMethod.toUpperCase()}`];
+    
+    const qrText = `
+      NextCard BD Payment
+      To: ${primaryNumber}
+      Amount: ${order.totalAmount}
+      Ref: ${order.orderId}
+    `.trim().replace(/\s+/g, '\n');
+
+    const qrCodeDataUrl = await generateQrCodeDataUri(qrText);
+    
+    paymentInfo.details = {
+      type: 'mfs',
+      qrCode: qrCodeDataUrl,
+      paymentNumber: primaryNumber,
+    };
+
+  } else if (selectedMethod === 'Bank' || selectedMethod === 'Card') {
+    // --- 2. Customer selected Bank/Card ---
+    paymentInfo.details = {
+      type: 'bank',
+      bankName: process.env.BANK_NAME,
+      branchName: process.env.BANK_BRANCH_NAME,
+      accountName: process.env.BANK_ACCOUNT_NAME,
+      accountNumber: process.env.BANK_ACCOUNT_NUMBER,
+    };
+  } else {
+    // Handle other cases like COD (though they shouldn't land here)
+    throw new ApiError(400, 'Payment details are not applicable for this order type.');
+  }
+  // --- END OF NEW LOGIC ---
 
   return res
     .status(200)
@@ -77,49 +84,44 @@ const getPaymentQrCode = asyncHandler(async (req, res) => {
  */
 const submitPayment = asyncHandler(async (req, res) => {
   const orderId = req.params.id;
-  const { transactionId, method } = req.body; // method can now be 'bKash', 'Bank', 'Card'
+  const { transactionId } = req.body; // We only need TxID
 
-  if (!transactionId || !method) {
-    throw new ApiError(400, 'Transaction ID (transactionId) and Method (method) are required');
+  if (!transactionId) {
+    throw new ApiError(400, 'Transaction ID (transactionId) is required');
   }
 
-  // 1. Find the order
   const order = await Order.findOne({ orderId: orderId });
   if (!order) {
     throw new ApiError(404, 'Order not found');
   }
-
   if (order.status !== 'Pending') {
     throw new ApiError(400, `This order cannot be paid for. Status: ${order.status}`);
   }
   
-  // 2. Check for duplicate TxID
   const existingTx = await Order.findOne({ 'paymentDetails.transactionId': transactionId });
   if (existingTx) {
     throw new ApiError(409, 'This Transaction ID has already been used.');
   }
   
-  // 3. Find the customer who placed this order
   const customer = await User.findById(order.userId);
   if (!customer) {
     throw new ApiError(404, 'Customer associated with this order not found.');
   }
 
-  // 4. Update the order
-  order.status = 'Paid'; // Update status for admin verification
-  order.paymentDetails = {
-    method: method,
-    // receiverNumber is optional now, only applies to MFS
-    receiverNumber: (method === 'bKash' || method === 'Nagad' || method === 'Rocket') 
-                      ? process.env[`RECEIVER_NUMBER_${method.toUpperCase()}`] 
-                      : null,
-    transactionId: transactionId.trim(),
-    submittedAt: new Date(),
-  };
+  // Update the order
+  order.status = 'Paid';
+  order.paymentDetails.transactionId = transactionId.trim();
+  order.paymentDetails.submittedAt = new Date();
+  
+  // Add receiver number if it was MFS
+  const method = order.paymentDetails.method;
+  if (method === 'bKash' || method === 'Nagad' || method === 'Rocket') {
+     order.paymentDetails.receiverNumber = process.env[`RECEIVER_NUMBER_${method.toUpperCase()}`];
+  }
 
   await order.save({ validateBeforeSave: true });
 
-  // 5. SEND EMAILS
+  // SEND EMAILS
   sendNewOrderToAdmin(order).catch(err => console.error("Admin Email Error:", err));
   sendOrderConfirmationToCustomer(order, customer).catch(err => console.error("Customer Email Error:", err));
 
@@ -128,4 +130,5 @@ const submitPayment = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, order, 'Payment submitted successfully. Awaiting verification.'));
 });
 
-export { getPaymentQrCode, submitPayment };
+// --- Make sure to export the correct function name ---
+export { getPaymentDetails, submitPayment };
