@@ -4,19 +4,37 @@ import 'dotenv/config';
 // 1. Initialize Resend
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ---CONFIGURATION---
+// --- CONFIGURATION ---
+
+// This will be your real "From" address *after* you verify your domain
+const PRODUCTION_SENDER_EMAIL = 'support@nextcardbd.com'; 
+
+// This is the "verified sender" Resend provides for free plan testing
 const TEST_SENDER_EMAIL = 'onboarding@resend.dev';
+
+// This is the *only* email Resend's free plan will send to (your personal email)
 const ADMIN_RECEIVER_EMAIL = process.env.ADMIN_RECEIVER_EMAIL;
-const PRODUCTION_SENDER_EMAIL = 'support@nextcardbd.com'; // TODO: Change this later
+
+// This is your actual email for replies
 const REPLY_TO_EMAIL = 'help.nextcardbd@gmail.com';
-const isDomainVerified = (SENDER_EMAIL !== 'onboarding@resend.dev');
+
+// --- (FIXED LOGIC) ---
+// Manually set this to 'true' *after* you verify your domain on Resend
+const IS_DOMAIN_VERIFIED = false; 
+
+// This is the email that will be used in the 'from' field
+const SENDER_EMAIL = IS_DOMAIN_VERIFIED ? PRODUCTION_SENDER_EMAIL : TEST_SENDER_EMAIL;
+// --- (END OF FIX) ---
+
 
 // Helper function to decide WHERE to send the email
 const getRecipientEmail = (customerEmail) => {
-  if (isDomainVerified) {
+  if (IS_DOMAIN_VERIFIED) {
+    // If domain is verified, send to the real customer
     return customerEmail;
   }
-  return ADMIN_RECEIVER_EMAIL; // Send ALL emails to admin for testing
+  // If in free plan, send ALL emails to the admin's personal email for testing
+  return ADMIN_RECEIVER_EMAIL; 
 };
 
 /**
@@ -30,19 +48,18 @@ export const sendNewOrderToAdmin = async (order) => {
     return;
   }
 
-  // Customize subject based on payment method
   const subject = (order.paymentDetails.method === 'COD')
     ? `[New COD Order] Order #${order.orderId} - ৳${order.totalAmount}`
     : `[New Order Alert] Order #${order.orderId} - ৳${order.totalAmount}`;
 
   try {
     await resend.emails.send({
-      from: `NextCard BD (Admin) <${TEST_SENDER_EMAIL}>`,
+      from: `NextCard BD (Admin) <${SENDER_EMAIL}>`, // <-- Fixed
       to: [ADMIN_RECEIVER_EMAIL],
       reply_to: REPLY_TO_EMAIL,
       subject: subject,
       html: `
-        <h2>New Order Received!</h2>
+        <h2>New Order Received! (Test Email)</h2>
         <p>A new order has been submitted.</p>
         <ul>
           <li><strong>Order ID:</strong> ${order.orderId}</li>
@@ -73,14 +90,14 @@ export const sendCodOrderConfirmationToCustomer = async (order, user) => {
 
   try {
     await resend.emails.send({
-      from: `NextCard BD Support <${TEST_SENDER_EMAIL}>`,
+      from: `NextCard BD Support <${SENDER_EMAIL}>`, // <-- Fixed
       to: [recipientEmail],
       reply_to: REPLY_TO_EMAIL,
       subject: `Your NextCard BD Order #${order.orderId} is Confirmed! (COD)`,
       html: `
         <h2>Thank You for Your Order, ${user.name}!</h2>
         <p>Your <strong>Cash on Delivery (COD)</strong> order has been confirmed and is now being processed.</p>
-        <p>Our delivery agent will contact you soon. Please keep the exact amount (৳${order.totalAmount}) ready.</p>
+        <p>(This is a test email. If you are the admin, you are receiving this on behalf of the customer: ${user.email})</p>
         <hr />
         <h3>Order Summary</h3>
         <ul>
@@ -111,7 +128,7 @@ export const sendOrderConfirmationToCustomer = async (order, user) => {
 
   try {
     await resend.emails.send({
-      from: `NextCard BD Support <${TEST_SENDER_EMAIL}>`,
+      from: `NextCard BD Support <${SENDER_EMAIL}>`, // <-- Fixed
       to: [recipientEmail],
       reply_to: REPLY_TO_EMAIL,
       subject: `Your NextCard BD Order #${order.orderId} is Awaiting Verification`,
@@ -147,7 +164,7 @@ export const sendPaymentVerifiedToCustomer = async (order, user) => {
 
   try {
     await resend.emails.send({
-      from: `NextCard BD Support <${TEST_SENDER_EMAIL}>`,
+      from: `NextCard BD Support <${SENDER_EMAIL}>`, // <-- Fixed
       to: [recipientEmail],
       reply_to: REPLY_TO_EMAIL,
       subject: `Your NextCard BD Order #${order.orderId} has been Confirmed!`,
