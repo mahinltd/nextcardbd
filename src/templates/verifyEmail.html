@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email - NexCartBD</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; }
+    .container { width: 90%; max-width: 600px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+    .header { font-size: 24px; font-weight: bold; color: #333; }
+    .content { margin-top: 20px; }
+    .button { display: inline-block; padding: 12px 24px; margin: 20px 0; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px; }
+    .footer { margin-top: 20px; font-size: 12px; color: #888; }
+    a { color: #007bff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">Welcome to NexCartBD!</div>
+    <div class="content">
+      <p>Hello <strong>{{USERNAME}}</strong>,</p>
+      <p>Thank you for registering. Please verify your email address to activate your account. This link is valid for 1 hour.</p>
+      <a href="{{LINK}}" class="button" style="color: #ffffff;">Verify My Email</a>
+      <p>If the button doesn't work, please copy and paste this link into your browser:</p>
+      <p><a href="{{LINK}}">{{LINK}}</a></p>
+      <p>If you did not create this account, please ignore this email.</p>
+    </div>
+    <div class="footer">
+      <p>&copy; 2025 NexCartBD. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>

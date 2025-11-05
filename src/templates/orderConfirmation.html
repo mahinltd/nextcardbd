@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Confirmation - NexCartBD</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; }
+    .container { width: 90%; max-width: 600px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+    .header { font-size: 24px; font-weight: bold; color: #28a745; }
+    .content { margin-top: 20px; }
+    .footer { margin-top: 20px; font-size: 12px; color: #888; }
+    .order-details { padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">Your Order is Confirmed!</div>
+    <div class="content">
+      <p>Hello <strong>{{CUSTOMER_NAME}}</strong>,</p>
+      <p>Thank you for shopping with NexCartBD. We have received your order and are processing it.</p>
+      
+      <div class="order-details">
+        <strong>Order ID:</strong> {{ORDER_ID}}<br>
+        <strong>Status:</strong> {{ORDER_STATUS}}
+      </div>
+      
+      <p style="margin-top: 20px;">You will receive another email as soon as your order is shipped. You can track your order status from your customer dashboard.</p>
+      <p>Thank you for your business!</p>
+    </div>
+    <div class="footer">
+      <p>&copy; 2025 NexCartBD. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
