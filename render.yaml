@@ -1,0 +1,97 @@
+# © NextCartBD - Developed by Mahin Ltd (Tanvir)
+# This file configures the deployment on Render.com
+
+services:
+  # ---------------------------------
+  # Main Backend API Service (Node.js)
+  # ---------------------------------
+  - type: web # This is a web server
+    name: nexcartbd-api
+    env: node # Use the Node.js environment
+    region: singapore # Closest region to Bangladesh for fast performance
+    plan: free # Use the free instance type
+    
+    # --- Build & Start ---
+    buildCommand: "npm install"
+    startCommand: "npm run start" # Uses the "start": "node server.js" script from package.json
+
+    # --- Health Check ---
+    # Render will ping this URL to ensure your app is live
+    healthCheckPath: /api/health
+
+    # --- Environment Variables ---
+    # !! IMPORTANT !!
+    # Secret keys (like MONGO_URI, JWT_SECRET, RESEND_API_KEY) are NOT stored here.
+    # You MUST add them in the Render Dashboard under "Environment".
+    # These "envVars" pull those secrets from your dashboard.
+    
+    envVars:
+      # --- Secrets (Set these in Render Dashboard) ---
+      - key: MONGO_URI
+        sync: false # Do not sync this value from the file
+      - key: JWT_SECRET
+        sync: false
+      - key: X_NEXTCARDBD_ADMIN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      
+      # --- Non-Secret Configs (From your .env) ---
+      - key: NODE_ENV
+        value: production # Set to production mode
+      - key: PORT
+        value: 5000 # Render will replace this, but it's good to set
+      - key: APP_NAME
+        value: NexCartBD
+      - key: TOKEN_EXPIRE_DAYS
+        value: 10
+      - key: ADMIN_NOTIFY_EMAIL
+        value: support@mahinltd.tech
+      - key: CUSTOMER_FROM_EMAIL
+        value: info@mahinltd.tech
+      - key: PAYMENT_METHODS
+        value: Bkash,Nagad,Rocket,Bank
+      - key: CURRENCY
+        value: BDT
+      - key: BKASH_NUMBER
+        value: 01836171236 # Non-secret, so safe to store here
+      - key: BKASH_ACCOUNT_TYPE
+        value: Personal
+      - key: NAGAD_NUMBER
+        value: 01340751380
+      - key: NAGAD_ACCOUNT_TYPE
+        value: Personal
+      - key: ROCKET_NUMBER
+        value: 01340751380
+      - key: ROCKET_ACCOUNT_TYPE
+        value: Personal
+      - key: BANK_NAME
+        value: Islami Bank Bangladesh Limited
+      - key: BANK_BRANCH
+        value: Agent Banking (125270607)
+      - key: BANK_ACCOUNT_NAME
+        value: MD. TANVIR RAHMAN MAHIN
+      - key: BANK_ACCOUNT_NUMBER
+        value: 20507770213955996
+      - key: BANK_ACCOUNT_TYPE
+        value: Agent Banking
+      - key: APP_URL
+        value: https://nexcartbd.mahinltd.tech
+      - key: API_URL
+        value: https://api.nexcartbd.mahinltd.tech,https://nextcardbd.onrender.com
+      - key: LOG_LEVEL
+        value: info
+      - key: ENABLE_EMAIL_VERIFICATION
+        value: true
+      - key: ENABLE_PHONE_VERIFICATION
+        value: false
+      - key: ENABLE_PROFIT_CALCULATION
+        value: true
+      - key: ALLOW_IMAGE_UPLOAD
+        value: false
+      - key: ALLOW_AUTO_SYNC
+        value: false
+      - key: ENABLE_CALENDAR_VIEW
+        value: true
+      - key: ENABLE_ORDER_TRACKING
+        value: true
