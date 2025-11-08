@@ -48,12 +48,14 @@ const generateOrderId = async () => {
 
 /**
  * 1. Create New Order (Customer)
+ * --- THIS FUNCTION IS NOW FIXED ---
  */
 export const createOrder = async (req, res, next) => {
   const {
-    orderItems, // [{ productId, quantity, color, size }]
-    shippingAddress, // { fullName, phone, address, city, zipCode }
-    paymentDetails, // { paymentMethod, transactionId, senderNumber, amount }
+    orderItems,
+    shippingAddress,
+    paymentDetails,
+    totalAmount, // <-- We now also accept the grand total
   } = req.body;
 
   try {
@@ -63,21 +65,29 @@ export const createOrder = async (req, res, next) => {
       return next(new ApiError(400, 'No order items provided.'));
     }
 
-    let calculatedTotal = 0;
+    let calculatedProductTotal = 0; // Renamed for clarity
     const itemsToSave = [];
 
     // Loop through items to get fresh price/buyPrice from DB
     for (const item of orderItems) {
-      const product = await Product.findById(item.productId);
+      // --- FIX 1: Robust Product ID checking ---
+      // Check for 'productId' (from your last fix) OR 'product' (from my previous fix)
+      const productId = item.productId || item.product; 
+      
+      if (!productId) {
+         return next(new ApiError(400, 'Product ID is missing from one or more items.'));
+      }
+      
+      const product = await Product.findById(productId);
       if (!product) {
-        return next(new ApiError(404, `Product not found: ${item.productId}`));
+        return next(new ApiError(404, `Product not found: ${productId}`));
       }
       
       const price = product.salePrice && product.salePrice > 0 ? product.salePrice : product.price;
-      calculatedTotal += price * item.quantity;
+      calculatedProductTotal += price * item.quantity;
       
       itemsToSave.push({
-        product: item.productId,
+        product: productId, // Save the correct ID
         title: product.title_en,
         quantity: item.quantity,
         price: price,
@@ -87,11 +97,27 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // Security check: Compare calculated total with amount user claims they paid
-    if (calculatedTotal !== paymentDetails.amount) {
-      logger.warn(`Price mismatch for user ${user.email}. Calculated: ${calculatedTotal}, Provided: ${paymentDetails.amount}`);
-      return next(new ApiError(400, 'Payment amount does not match the cart total. Please try again.'));
+    // --- FIX 2: Correct Price Validation (Including Shipping) ---
+    
+    // Get the grand total (including shipping) sent from the frontend
+    const frontendGrandTotal = totalAmount || paymentDetails.amount;
+    
+    // Calculate the shipping cost based on the difference
+    const calculatedShippingCost = frontendGrandTotal - calculatedProductTotal;
+
+    // Security Check 1: Ensure user isn't cheating (e.g., total 800 for 999 product)
+    if (calculatedShippingCost < 0) {
+        logger.warn(`Price mismatch for user ${user.email}. Products: ${calculatedProductTotal}, Total Paid: ${frontendGrandTotal}`);
+        return next(new ApiError(400, 'Payment amount is less than the product total.'));
     }
+
+    // Security Check 2: Ensure the payment amount matches the (now verified) grand total
+    // (e.g., 1129 === 1129)
+    if (frontendGrandTotal !== paymentDetails.amount) {
+        logger.warn(`Price mismatch for user ${user.email}. Grand Total: ${frontendGrandTotal}, Payment Amount: ${paymentDetails.amount}`);
+        return next(new ApiError(400, 'Total amount and payment amount do not match.'));
+    }
+    // --- END OF FIX 2 ---
 
     // Create the order
     const newOrder = new Order({
@@ -99,8 +125,8 @@ export const createOrder = async (req, res, next) => {
       user: user._id,
       items: itemsToSave,
       shippingAddress,
-      paymentDetails, // This includes paymentStatus: 'Pending' by default
-      totalAmount: calculatedTotal,
+      paymentDetails,
+      totalAmount: frontendGrandTotal, // <-- Save the correct Grand Total
       // totalBuyAmount and totalProfit will be calculated by pre-save hook
       // orderStatus and shippingUpdates will be set by pre-save hook
     });
