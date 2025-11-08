@@ -2,21 +2,26 @@
 
 import mongoose from 'mongoose';
 
+// --- THIS IS THE FIX (Schema Definition) ---
 const paymentDetailsSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: [true, 'Payment method is required'],
-    enum: ['Bkash', 'Nagad', 'Rocket', 'Bank Transfer'],
+    // FIX 1: Added 'cod' and all lowercase values to match frontend
+    enum: [
+      'Bkash', 'Nagad', 'Rocket', 'Bank Transfer', // Old values
+      'bkash', 'nagad', 'rocket', 'bank', 'cod'  // New values from frontend
+    ],
   },
   transactionId: {
     type: String,
-    required: [true, 'Transaction ID is required'],
     trim: true,
+    // FIX 2: Removed 'required' because COD will not have a TxnID
   },
   senderNumber: {
     type: String,
-    required: [true, 'Sender number is required'],
     trim: true,
+    // FIX 2: Removed 'required' because COD will not have a Sender Number
   },
   amount: {
     type: Number,
@@ -32,6 +37,7 @@ const paymentDetailsSchema = new mongoose.Schema({
     default: null,
   },
 });
+// --- END OF FIX ---
 
 const shippingUpdateSchema = new mongoose.Schema({
   status: {
@@ -121,7 +127,6 @@ const orderSchema = new mongoose.Schema(
       default: 'Awaiting Verification',
     },
     shippingUpdates: [shippingUpdateSchema],
-    // Soft delete flag
     isDeleted: {
       type: Boolean,
       default: false,
@@ -134,18 +139,25 @@ const orderSchema = new mongoose.Schema(
 
 // --- Middleware ---
 
-// Add the initial 'Order Received' status
+// --- THIS IS THE FIX (COD Logic) ---
 orderSchema.pre('save', function (next) {
   if (this.isNew) {
     this.shippingUpdates.push({ status: 'Order Received' });
     
-    // Also add 'Awaiting Verification' if payment is pending
-    if(this.paymentDetails.paymentStatus === 'Pending') {
+    // FIX 3: If method is 'cod', auto-verify and set to Processing
+    if(this.paymentDetails.paymentMethod === 'cod') {
+        this.paymentDetails.paymentStatus = 'Verified'; // Auto-verify COD
+        this.orderStatus = 'Processing'; // Set status to Processing
+        this.shippingUpdates.push({ status: 'Packaging', notes: 'Cash on Delivery' });
+    }
+    // If payment is pending (Bkash, etc.)
+    else if(this.paymentDetails.paymentStatus === 'Pending') {
       this.shippingUpdates.push({ status: 'Awaiting Verification' });
     }
   }
   next();
 });
+// --- END OF FIX ---
 
 // Calculate total buy price and profit
 orderSchema.pre('save', function (next) {
