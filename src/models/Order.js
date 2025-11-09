@@ -47,7 +47,6 @@ const shippingUpdateSchema = new mongoose.Schema({
       'Processing', // Added this
       'Shipped',
       'In Transit',
-      'Out of delivery', // <-- FIX: Changed to lowercase 'd'
       'Delivered',
       'Cancelled',
       'On Hold',
