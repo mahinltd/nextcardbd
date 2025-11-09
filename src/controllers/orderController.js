@@ -28,17 +28,13 @@ const readOrderTemplate = async (templateName, replacements) => {
 // Helper: Generate a unique Order ID (e.g., NCBD-20251105-1001)
 const generateOrderId = async () => {
   const date = new Date();
-  const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, ''); // 20251105
-  
-  // Find count of orders from today to get the next sequence number
+  const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, '');
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
-
   const todayOrderCount = await Order.countDocuments({ createdAt: { $gte: startOfDay, $lte: endOfDay } });
-  const sequence = (todayOrderCount + 1).toString().padStart(4, '0'); // 0001
-  
+  const sequence = (todayOrderCount + 1).toString().padStart(4, '0');
   return `NCBD-${yyyymmdd}-${sequence}`;
 };
 
@@ -48,30 +44,27 @@ const generateOrderId = async () => {
 
 /**
  * 1. Create New Order (Customer)
- * --- THIS FUNCTION IS FIXED (Accepts shipping cost) ---
+ * --- FIXED: Now saves shippingCost ---
  */
 export const createOrder = async (req, res, next) => {
   const {
     orderItems,
     shippingAddress,
     paymentDetails,
-    totalAmount, // <-- We now accept the grand total
+    totalAmount,
   } = req.body;
 
   try {
-    const user = req.user; // From 'protect' middleware
+    const user = req.user; 
 
     if (!orderItems || orderItems.length === 0) {
       return next(new ApiError(400, 'No order items provided.'));
     }
 
-    let calculatedProductTotal = 0; // Renamed for clarity
+    let calculatedProductTotal = 0; 
     const itemsToSave = [];
 
-    // Loop through items to get fresh price/buyPrice from DB
     for (const item of orderItems) {
-      // --- FIX: Robust Product ID checking ---
-      // Check for 'productId' (from frontend) OR 'product' (from Postman)
       const productId = item.productId || item.product; 
       
       if (!productId) {
@@ -87,7 +80,7 @@ export const createOrder = async (req, res, next) => {
       calculatedProductTotal += price * item.quantity;
       
       itemsToSave.push({
-        product: productId, // Save the correct ID
+        product: productId,
         title: product.title_en,
         quantity: item.quantity,
         price: price,
@@ -97,26 +90,18 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // --- FIX: Correct Price Validation (Including Shipping) ---
-    
-    // Get the grand total (which includes shipping) sent from the frontend
     const frontendGrandTotal = totalAmount || paymentDetails.amount;
-    
-    // Calculate the shipping cost based on the difference
     const calculatedShippingCost = frontendGrandTotal - calculatedProductTotal;
 
-    // Security Check 1: Ensure user isn't cheating (e.g., total 800 for 999 product)
     if (calculatedShippingCost < 0) {
         logger.warn(`Price mismatch for user ${user.email}. Products: ${calculatedProductTotal}, Total Paid: ${frontendGrandTotal}`);
         return next(new ApiError(400, 'Payment amount is less than the product total.'));
     }
 
-    // Security Check 2: Ensure the payment amount matches the (now verified) grand total
     if (frontendGrandTotal !== paymentDetails.amount) {
         logger.warn(`Price mismatch for user ${user.email}. Grand Total: ${frontendGrandTotal}, Payment Amount: ${paymentDetails.amount}`);
         return next(new ApiError(400, 'Total amount and payment amount do not match.'));
     }
-    // --- END OF FIX ---
 
     // Create the order
     const newOrder = new Order({
@@ -125,12 +110,13 @@ export const createOrder = async (req, res, next) => {
       items: itemsToSave,
       shippingAddress,
       paymentDetails,
-      totalAmount: frontendGrandTotal, // <-- Save the correct Grand Total
+      totalAmount: frontendGrandTotal, 
+      shippingCost: calculatedShippingCost, // <-- 🔴 SHIPPING COST FIX
     });
 
     const savedOrder = await newOrder.save();
 
-    // Send confirmation email to customer
+    // ... (Email sending code remains the same) ...
     const customerHtml = await readOrderTemplate('orderConfirmation.html', {
       CUSTOMER_NAME: shippingAddress.fullName,
       ORDER_ID: savedOrder.orderId,
@@ -141,8 +127,6 @@ export const createOrder = async (req, res, next) => {
       `Your NexCartBD Order is Confirmed! (ID: ${savedOrder.orderId})`,
       customerHtml
     );
-
-    // Send notification email to admin
     await sendAdminNotification(
       `New Order Received: ${savedOrder.orderId}`,
       `<p>A new order has been placed by ${user.email}.</p>
@@ -166,7 +150,7 @@ export const createOrder = async (req, res, next) => {
 export const getMyOrders = async (req, res, next) => {
   try {
     const orders = await Order.find({ user: req.user._id })
-      .select('orderId orderStatus totalAmount createdAt') // Select only summary fields
+      .select('orderId orderStatus totalAmount createdAt') 
       .sort({ createdAt: -1 });
       
     ApiResponse.success(res, orders, 'Your orders retrieved successfully.');
@@ -177,20 +161,17 @@ export const getMyOrders = async (req, res, next) => {
 
 /**
  * 3. Get My Order By ID (Customer)
- * --- THIS FUNCTION IS NOW FIXED ---
+ * --- FIXED: Correct populate syntax ---
  */
 export const getMyOrderById = async (req, res, next) => {
   const { id } = req.params;
   
   try {
     const order = await Order.findOne({ _id: id, user: req.user._id })
-      // --- 🔴 THIS IS THE FIX 🔴 ---
-      // Use the correct 'path' syntax for nested population
       .populate({
-          path: 'items.product',
+          path: 'items.product', // <-- 🔴 POPULATE FIX
           select: 'title_en title_bn images slug'
       });
-      // --- End of Fix ---
       
     if (!order) {
       return next(new ApiError(404, 'Order not found or you do not have permission to view it.'));
@@ -202,6 +183,62 @@ export const getMyOrderById = async (req, res, next) => {
   }
 };
 
+
+// --- 🔴 NEW FUNCTION (This will fix the server crash) 🔴 ---
+/**
+ * 3.5. Cancel My Order (Customer)
+ * A customer can cancel their own order if it's not yet shipped.
+ */
+export const cancelOrder = async (req, res, next) => {
+  const { id } = req.params;
+  const userId = req.user._id;
+
+  try {
+    // Find the order and ensure it belongs to this user
+    const order = await Order.findOne({ _id: id, user: userId });
+
+    if (!order) {
+      return next(new ApiError(404, 'Order not found.'));
+    }
+
+    // --- Business Logic ---
+    // We only allow cancellation if the order is pending or processing.
+    const cancellableStatuses = ['Awaiting Verification', 'Processing', 'Packaging', 'On Hold'];
+    
+    if (order.orderStatus === 'Cancelled') {
+      return next(new ApiError(400, 'This order has already been cancelled.'));
+    }
+
+    if (!cancellableStatuses.includes(order.orderStatus)) {
+      return next(new ApiError(400, `Cannot cancel order. It has already been ${order.orderStatus}.`));
+    }
+
+    // Update the order
+    order.orderStatus = 'Cancelled';
+    order.shippingUpdates.push({ 
+      status: 'Cancelled', 
+      notes: 'Order cancelled by customer.' 
+    });
+
+    const savedOrder = await order.save();
+    
+    // Send notification email to admin
+    await sendAdminNotification(
+      `Order Cancelled by Customer (ID: ${savedOrder.orderId})`,
+      `<p>Order ID: ${savedOrder.orderId} has been CANCELLED by the customer.</p>
+       <p>User: ${req.user.email}</p>
+       <p>Please check the admin panel for details.</p>`
+    );
+
+    ApiResponse.success(res, savedOrder, 'Order has been successfully cancelled.');
+
+  } catch (error) {
+    next(error);
+  }
+};
+// --- 🔴 END OF NEW FUNCTION 🔴 ---
+
+
 // ===============================================
 // ADMIN CONTROLLERS
 // ===============================================
@@ -212,9 +249,8 @@ export const getMyOrderById = async (req, res, next) => {
 export const getAllOrders = async (req, res, next) => {
   try {
     const orders = await Order.find()
-      .populate('user', 'username email') // Get user email
+      .populate('user', 'username email') 
       .sort({ createdAt: -1 });
-      
     ApiResponse.success(res, orders, 'All orders retrieved.');
   } catch (error) {
     next(error);
@@ -226,30 +262,19 @@ export const getAllOrders = async (req, res, next) => {
  */
 export const verifyPayment = async (req, res, next) => {
   const { id } = req.params;
-
   try {
     const order = await Order.findById(id).populate('user', 'email username');
     if (!order) {
       return next(new ApiError(404, 'Order not found.'));
     }
-
     if (order.paymentDetails.paymentStatus === 'Verified') {
       return next(new ApiError(400, 'This payment has already been verified.'));
     }
-
-    // Update payment status
     order.paymentDetails.paymentStatus = 'Verified';
     order.paymentDetails.verifiedAt = new Date();
-    
-    // Update order status
     order.orderStatus = 'Processing';
-    
-    // Add shipping update
     order.shippingUpdates.push({ status: 'Packaging', notes: 'Payment verified by admin.' });
-
     const savedOrder = await order.save();
-    
-    // Send email to customer
     const customerHtml = await readOrderTemplate('shippingUpdate.html', {
       CUSTOMER_NAME: order.shippingAddress.fullName,
       ORDER_ID: order.orderId,
@@ -260,9 +285,7 @@ export const verifyPayment = async (req, res, next) => {
       `Payment Verified - Your Order ${order.orderId} is Processing`,
       customerHtml
     );
-
     ApiResponse.success(res, savedOrder, 'Payment verified. Order status updated to Processing.');
-
   } catch (error) {
     next(error);
   }
@@ -273,23 +296,15 @@ export const verifyPayment = async (req, res, next) => {
  */
 export const updateShippingStatus = async (req, res, next) => {
   const { id } = req.params;
-  const { status, notes } = req.body; // e.g., status: "Shipped", notes: "Tracking ID: 12345"
-
+  const { status, notes } = req.body;
   try {
     const order = await Order.findById(id).populate('user', 'email username');
     if (!order) {
       return next(new ApiError(404, 'Order not found.'));
     }
-
-    // Add the new shipping update
     order.shippingUpdates.push({ status, notes });
-    
-    // Update the main order status
     order.orderStatus = status;
-
     const savedOrder = await order.save();
-    
-    // Send email to customer
     const customerHtml = await readOrderTemplate('shippingUpdate.html', {
       CUSTOMER_NAME: order.shippingAddress.fullName,
       ORDER_ID: order.orderId,
@@ -300,9 +315,7 @@ export const updateShippingStatus = async (req, res, next) => {
       `Your Order ${order.orderId} has been ${status}!`,
       customerHtml
     );
-
     ApiResponse.success(res, savedOrder, 'Shipping status updated successfully.');
-
   } catch (error) {
     next(error);
   }
@@ -313,17 +326,14 @@ export const updateShippingStatus = async (req, res, next) => {
  */
 export const getOrdersForCalendar = async (req, res, next) => {
   try {
-    const { startDate, endDate } = req.query; // Expect ISO dates
+    const { startDate, endDate } = req.query;
     const query = {};
-    
     if (startDate && endDate) {
       query.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
-
     const orders = await Order.find(query)
       .select('orderId totalAmount orderStatus createdAt')
       .sort({ createdAt: -1 });
-
     ApiResponse.success(res, orders, 'Orders retrieved for date range.');
   } catch (error) {
     next(error);
@@ -335,17 +345,11 @@ export const getOrdersForCalendar = async (req, res, next) => {
  */
 export const trackOrderById = async (req, res, next) => {
   const { orderId } = req.params;
-
   try {
-    // Find the order using the custom orderId field
     const order = await Order.findOne({ orderId: orderId });
-
     if (!order) {
       return next(new ApiError(404, 'Order not found. Please check the Order ID and try again.'));
     }
-
-    // --- IMPORTANT ---
-    // We only send back data that is safe for the public to see.
     const trackingData = {
       orderId: order.orderId,
       orderStatus: order.orderStatus,
@@ -354,11 +358,8 @@ export const trackOrderById = async (req, res, next) => {
       isDelivered: order.orderStatus === 'Delivered',
       deliveredAt: order.orderStatus === 'Delivered' ? order.updatedAt : null
     };
-
     ApiResponse.success(res, trackingData, 'Order status retrieved successfully.');
-
   } catch (error) {
-    // Handle potential CastError if someone puts a weird ID
     if (error.name === 'CastError') {
        return next(new ApiError(400, 'Invalid Order ID format.'));
     }
