@@ -2,7 +2,6 @@
 
 import mongoose from 'mongoose';
 
-// --- THIS IS THE FIX (Schema Definition) ---
 const paymentDetailsSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
@@ -37,7 +36,6 @@ const paymentDetailsSchema = new mongoose.Schema({
     default: null,
   },
 });
-// --- END OF FIX ---
 
 const shippingUpdateSchema = new mongoose.Schema({
   status: {
@@ -113,6 +111,14 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    
+    // --- 🔴 FIX 3: Added shippingCost field ---
+    shippingCost: {
+      type: Number,
+      default: 0,
+    },
+    // --- End of Fix ---
+
     totalBuyAmount: {
       type: Number,
       default: 0,
@@ -139,12 +145,12 @@ const orderSchema = new mongoose.Schema(
 
 // --- Middleware ---
 
-// --- THIS IS THE FIX (COD Logic) ---
+// --- FIX 4: Added COD Logic ---
 orderSchema.pre('save', function (next) {
   if (this.isNew) {
     this.shippingUpdates.push({ status: 'Order Received' });
     
-    // FIX 3: If method is 'cod', auto-verify and set to Processing
+    // If method is 'cod', auto-verify and set to Processing
     if(this.paymentDetails.paymentMethod === 'cod') {
         this.paymentDetails.paymentStatus = 'Verified'; // Auto-verify COD
         this.orderStatus = 'Processing'; // Set status to Processing
@@ -157,7 +163,7 @@ orderSchema.pre('save', function (next) {
   }
   next();
 });
-// --- END OF FIX ---
+// --- END OF FIX 4 ---
 
 // Calculate total buy price and profit
 orderSchema.pre('save', function (next) {
@@ -167,7 +173,8 @@ orderSchema.pre('save', function (next) {
       totalBuy += (item.buyPrice || 0) * item.quantity;
     });
     this.totalBuyAmount = totalBuy;
-    this.totalProfit = this.totalAmount - totalBuy;
+    // Profit is now Total Amount (Sell + Ship) - Buy Amount - Ship Cost
+    this.totalProfit = this.totalAmount - this.totalBuyAmount - this.shippingCost;
   }
   next();
 });
