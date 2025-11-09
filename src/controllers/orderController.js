@@ -55,7 +55,7 @@ export const createOrder = async (req, res, next) => {
     orderItems,
     shippingAddress,
     paymentDetails,
-    totalAmount, // <-- We now also accept the grand total
+    totalAmount, // <-- FIX 1: We now accept the grand total from frontend
   } = req.body;
 
   try {
@@ -70,7 +70,7 @@ export const createOrder = async (req, res, next) => {
 
     // Loop through items to get fresh price/buyPrice from DB
     for (const item of orderItems) {
-      // --- FIX 1: Robust Product ID checking ---
+      // --- FIX 2: Robust Product ID checking ---
       // Check for 'productId' (from your last fix) OR 'product' (from my previous fix)
       const productId = item.productId || item.product; 
       
@@ -97,9 +97,10 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // --- FIX 2: Correct Price Validation (Including Shipping) ---
+    // --- FIX 3: Correct Price Validation (Including Shipping) ---
     
-    // Get the grand total (including shipping) sent from the frontend
+    // Get the grand total (which includes shipping) sent from the frontend
+    // Use totalAmount from body, fallback to paymentDetails.amount
     const frontendGrandTotal = totalAmount || paymentDetails.amount;
     
     // Calculate the shipping cost based on the difference
@@ -117,7 +118,7 @@ export const createOrder = async (req, res, next) => {
         logger.warn(`Price mismatch for user ${user.email}. Grand Total: ${frontendGrandTotal}, Payment Amount: ${paymentDetails.amount}`);
         return next(new ApiError(400, 'Total amount and payment amount do not match.'));
     }
-    // --- END OF FIX 2 ---
+    // --- END OF FIX 3 ---
 
     // Create the order
     const newOrder = new Order({
@@ -126,7 +127,7 @@ export const createOrder = async (req, res, next) => {
       items: itemsToSave,
       shippingAddress,
       paymentDetails,
-      totalAmount: frontendGrandTotal, // <-- Save the correct Grand Total
+      totalAmount: frontendGrandTotal, // <-- FIX 4: Save the correct Grand Total
       // totalBuyAmount and totalProfit will be calculated by pre-save hook
       // orderStatus and shippingUpdates will be set by pre-save hook
     });
