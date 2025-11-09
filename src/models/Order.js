@@ -6,21 +6,18 @@ const paymentDetailsSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: [true, 'Payment method is required'],
-    // FIX 1: Added 'cod' and all lowercase values to match frontend
     enum: [
-      'Bkash', 'Nagad', 'Rocket', 'Bank Transfer', // Old values
-      'bkash', 'nagad', 'rocket', 'bank', 'cod'  // New values from frontend
+      'Bkash', 'Nagad', 'Rocket', 'Bank Transfer',
+      'bkash', 'nagad', 'rocket', 'bank', 'cod'
     ],
   },
   transactionId: {
     type: String,
     trim: true,
-    // FIX 2: Removed 'required' because COD will not have a TxnID
   },
   senderNumber: {
     type: String,
     trim: true,
-    // FIX 2: Removed 'required' because COD will not have a Sender Number
   },
   amount: {
     type: Number,
@@ -37,6 +34,7 @@ const paymentDetailsSchema = new mongoose.Schema({
   },
 });
 
+// --- THIS IS THE FIX ---
 const shippingUpdateSchema = new mongoose.Schema({
   status: {
     type: String,
@@ -44,10 +42,12 @@ const shippingUpdateSchema = new mongoose.Schema({
     enum: [
       'Order Received',
       'Awaiting Verification',
+      'Verified', // Added this based on your screenshot
       'Packaging',
+      'Processing', // Added this
       'Shipped',
       'In Transit',
-      'Out for Delivery',
+      'Out of delivery', // <-- FIX: Changed to lowercase 'd'
       'Delivered',
       'Cancelled',
       'On Hold',
@@ -63,6 +63,7 @@ const shippingUpdateSchema = new mongoose.Schema({
     default: '',
   },
 });
+// --- END OF FIX ---
 
 const orderItemSchema = new mongoose.Schema({
   product: {
@@ -70,17 +71,17 @@ const orderItemSchema = new mongoose.Schema({
     ref: 'Product',
     required: true,
   },
-  title: String, // Storing title_en for quick access
+  title: String, 
   quantity: {
     type: Number,
     required: true,
     min: 1,
   },
   price: {
-    type: Number, // Price at the time of purchase
+    type: Number, 
     required: true,
   },
-  buyPrice: Number, // Buy price at the time of purchase (for profit calculation)
+  buyPrice: Number, 
   color: String,
   size: String,
 });
@@ -111,14 +112,10 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    
-    // --- 🔴 FIX 3: Added shippingCost field ---
     shippingCost: {
       type: Number,
       default: 0,
     },
-    // --- End of Fix ---
-
     totalBuyAmount: {
       type: Number,
       default: 0,
@@ -127,11 +124,26 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // --- THIS IS THE FIX ---
     orderStatus: {
       type: String,
-      enum: ['Awaiting Verification', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'On Hold'],
+      // FIX: This list must include all possible statuses from shippingUpdates
+      enum: [
+        'Order Received',
+        'Awaiting Verification',
+        'Verified',
+        'Packaging',
+        'Processing',
+        'Shipped',
+        'In Transit',
+        'Out of delivery', // <-- FIX: Added and changed to lowercase 'd'
+        'Delivered',
+        'Cancelled',
+        'On Hold',
+      ],
       default: 'Awaiting Verification',
     },
+    // --- END OF FIX ---
     shippingUpdates: [shippingUpdateSchema],
     isDeleted: {
       type: Boolean,
@@ -145,27 +157,22 @@ const orderSchema = new mongoose.Schema(
 
 // --- Middleware ---
 
-// --- FIX 4: Added COD Logic ---
 orderSchema.pre('save', function (next) {
   if (this.isNew) {
     this.shippingUpdates.push({ status: 'Order Received' });
     
-    // If method is 'cod', auto-verify and set to Processing
     if(this.paymentDetails.paymentMethod === 'cod') {
-        this.paymentDetails.paymentStatus = 'Verified'; // Auto-verify COD
-        this.orderStatus = 'Processing'; // Set status to Processing
-        this.shippingUpdates.push({ status: 'Packaging', notes: 'Cash on Delivery' });
+        this.paymentDetails.paymentStatus = 'Verified'; 
+        this.orderStatus = 'Processing'; 
+        this.shippingUpdates.push({ status: 'Processing', notes: 'Cash on Delivery' }); // Changed to Processing
     }
-    // If payment is pending (Bkash, etc.)
     else if(this.paymentDetails.paymentStatus === 'Pending') {
       this.shippingUpdates.push({ status: 'Awaiting Verification' });
     }
   }
   next();
 });
-// --- END OF FIX 4 ---
 
-// Calculate total buy price and profit
 orderSchema.pre('save', function (next) {
   if (this.isModified('items') || this.isNew) {
     let totalBuy = 0;
@@ -173,13 +180,11 @@ orderSchema.pre('save', function (next) {
       totalBuy += (item.buyPrice || 0) * item.quantity;
     });
     this.totalBuyAmount = totalBuy;
-    // Profit is now Total Amount (Sell + Ship) - Buy Amount - Ship Cost
     this.totalProfit = this.totalAmount - this.totalBuyAmount - this.shippingCost;
   }
   next();
 });
 
-// --- Soft Delete Logic (Query Helper) ---
 orderSchema.pre(/^find/, function (next) {
   this.where({ isDeleted: { $ne: true } });
   next();
