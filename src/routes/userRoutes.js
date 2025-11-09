@@ -1,18 +1,19 @@
 // © NextCartBD - Developed by Mahin Ltd (Tanvir)
 
 import { Router } from 'express';
-import { body } from 'express-validator'; // <-- NEW IMPORT
+import { body } from 'express-validator';
 import { protect } from '../middlewares/authMiddleware.js';
 import {
   getUserProfile,
   updateUserProfile,
 } from '../controllers/userController.js';
 import {
-  createOrder, // <-- NEW IMPORT
+  createOrder,
   getMyOrders,
   getMyOrderById,
+  cancelOrder, // <-- 🔴 NEW IMPORT
 } from '../controllers/orderController.js';
-import { handleValidationErrors } from '../middlewares/validationMiddleware.js'; // <-- NEW IMPORT
+import { handleValidationErrors } from '../middlewares/validationMiddleware.js';
 
 const router = Router();
 
@@ -38,8 +39,6 @@ const validateOrder = [
   body('shippingAddress.address').notEmpty().withMessage('Address is required.'),
   body('shippingAddress.city').notEmpty().withMessage('City is required.'),
   body('paymentDetails.paymentMethod').notEmpty().withMessage('Payment method is required.'),
-  body('paymentDetails.transactionId').notEmpty().withMessage('Transaction ID is required.'),
-  body('paymentDetails.senderNumber').notEmpty().withMessage('Sender number is required.'),
   body('paymentDetails.amount').isNumeric().withMessage('Payment amount is required.'),
 ];
 
@@ -48,7 +47,7 @@ const validateOrder = [
  * @desc    Create a new order
  * @access  Private (Customer)
  */
-router.post('/orders', validateOrder, handleValidationErrors, createOrder); // <-- NEW ROUTE
+router.post('/orders', validateOrder, handleValidationErrors, createOrder);
 
 /**
  * @route   GET /api/v1/user/orders
@@ -63,5 +62,12 @@ router.get('/orders', getMyOrders);
  * @access  Private (Customer)
  */
 router.get('/orders/:id', getMyOrderById);
+
+/**
+ * @route   PATCH /api/v1/user/orders/:id/cancel
+ * @desc    Cancel an order (if it's not shipped yet)
+ * @access  Private (Customer)
+ */
+router.patch('/orders/:id/cancel', cancelOrder); // <-- 🔴 NEW ROUTE
 
 export default router;
