@@ -48,14 +48,14 @@ const generateOrderId = async () => {
 
 /**
  * 1. Create New Order (Customer)
- * --- THIS FUNCTION IS NOW FIXED ---
+ * --- THIS FUNCTION IS FIXED (Accepts shipping cost) ---
  */
 export const createOrder = async (req, res, next) => {
   const {
     orderItems,
     shippingAddress,
     paymentDetails,
-    totalAmount, // <-- FIX 1: We now accept the grand total from frontend
+    totalAmount, // <-- We now accept the grand total
   } = req.body;
 
   try {
@@ -70,8 +70,8 @@ export const createOrder = async (req, res, next) => {
 
     // Loop through items to get fresh price/buyPrice from DB
     for (const item of orderItems) {
-      // --- FIX 2: Robust Product ID checking ---
-      // Check for 'productId' (from your last fix) OR 'product' (from my previous fix)
+      // --- FIX: Robust Product ID checking ---
+      // Check for 'productId' (from frontend) OR 'product' (from Postman)
       const productId = item.productId || item.product; 
       
       if (!productId) {
@@ -97,10 +97,9 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // --- FIX 3: Correct Price Validation (Including Shipping) ---
+    // --- FIX: Correct Price Validation (Including Shipping) ---
     
     // Get the grand total (which includes shipping) sent from the frontend
-    // Use totalAmount from body, fallback to paymentDetails.amount
     const frontendGrandTotal = totalAmount || paymentDetails.amount;
     
     // Calculate the shipping cost based on the difference
@@ -113,12 +112,11 @@ export const createOrder = async (req, res, next) => {
     }
 
     // Security Check 2: Ensure the payment amount matches the (now verified) grand total
-    // (e.g., 1129 === 1129)
     if (frontendGrandTotal !== paymentDetails.amount) {
         logger.warn(`Price mismatch for user ${user.email}. Grand Total: ${frontendGrandTotal}, Payment Amount: ${paymentDetails.amount}`);
         return next(new ApiError(400, 'Total amount and payment amount do not match.'));
     }
-    // --- END OF FIX 3 ---
+    // --- END OF FIX ---
 
     // Create the order
     const newOrder = new Order({
@@ -127,9 +125,7 @@ export const createOrder = async (req, res, next) => {
       items: itemsToSave,
       shippingAddress,
       paymentDetails,
-      totalAmount: frontendGrandTotal, // <-- FIX 4: Save the correct Grand Total
-      // totalBuyAmount and totalProfit will be calculated by pre-save hook
-      // orderStatus and shippingUpdates will be set by pre-save hook
+      totalAmount: frontendGrandTotal, // <-- Save the correct Grand Total
     });
 
     const savedOrder = await newOrder.save();
@@ -181,13 +177,20 @@ export const getMyOrders = async (req, res, next) => {
 
 /**
  * 3. Get My Order By ID (Customer)
+ * --- THIS FUNCTION IS NOW FIXED ---
  */
 export const getMyOrderById = async (req, res, next) => {
   const { id } = req.params;
   
   try {
     const order = await Order.findOne({ _id: id, user: req.user._id })
-      .populate('items.product', 'title_en images slug'); // Populate product info
+      // --- 🔴 THIS IS THE FIX 🔴 ---
+      // Use the correct 'path' syntax for nested population
+      .populate({
+          path: 'items.product',
+          select: 'title_en title_bn images slug'
+      });
+      // --- End of Fix ---
       
     if (!order) {
       return next(new ApiError(404, 'Order not found or you do not have permission to view it.'));
@@ -208,7 +211,6 @@ export const getMyOrderById = async (req, res, next) => {
  */
 export const getAllOrders = async (req, res, next) => {
   try {
-    // Add pagination later if needed
     const orders = await Order.find()
       .populate('user', 'username email') // Get user email
       .sort({ createdAt: -1 });
@@ -283,7 +285,6 @@ export const updateShippingStatus = async (req, res, next) => {
     order.shippingUpdates.push({ status, notes });
     
     // Update the main order status
-    // Simple logic: last shipping update is the new order status
     order.orderStatus = status;
 
     const savedOrder = await order.save();
@@ -309,7 +310,6 @@ export const updateShippingStatus = async (req, res, next) => {
 
 /**
  * 7. Get Orders for Calendar (Admin)
- * (Simplified version - returns orders in a list)
  */
 export const getOrdersForCalendar = async (req, res, next) => {
   try {
@@ -326,6 +326,42 @@ export const getOrdersForCalendar = async (req, res, next) => {
 
     ApiResponse.success(res, orders, 'Orders retrieved for date range.');
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 8. NEW FUNCTION: Public Order Tracking
+ */
+export const trackOrderById = async (req, res, next) => {
+  const { orderId } = req.params;
+
+  try {
+    // Find the order using the custom orderId field
+    const order = await Order.findOne({ orderId: orderId });
+
+    if (!order) {
+      return next(new ApiError(404, 'Order not found. Please check the Order ID and try again.'));
+    }
+
+    // --- IMPORTANT ---
+    // We only send back data that is safe for the public to see.
+    const trackingData = {
+      orderId: order.orderId,
+      orderStatus: order.orderStatus,
+      shippingUpdates: order.shippingUpdates,
+      createdAt: order.createdAt,
+      isDelivered: order.orderStatus === 'Delivered',
+      deliveredAt: order.orderStatus === 'Delivered' ? order.updatedAt : null
+    };
+
+    ApiResponse.success(res, trackingData, 'Order status retrieved successfully.');
+
+  } catch (error) {
+    // Handle potential CastError if someone puts a weird ID
+    if (error.name === 'CastError') {
+       return next(new ApiError(400, 'Invalid Order ID format.'));
+    }
     next(error);
   }
 };
