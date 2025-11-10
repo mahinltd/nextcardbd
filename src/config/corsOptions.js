@@ -10,7 +10,7 @@ import logger from '../utils/logger.js';
 // Define the domains that are allowed to make requests to our API
 const allowedOrigins = [
   // Production Frontend Domain
-  process.env.APP_URL, // From .env: https://nexcartbd.mahinltd.tech
+  process.env.APP_URL, // From .env: https://nextcardbd.mahinltd.tech
 
   // Development Domains
   'http://localhost:5173', // For React/Vite dev
